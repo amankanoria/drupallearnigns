@@ -1,0 +1,248 @@
+Reference- https://www.drupion.com/blog/10-steps-creating-ctools-modal-window-drupal-7
+
+There are two general ways to easily create modals in Drupal. The first, and common method is to use the ColorBox or the Lightbox2 modules. Both modules have some built-in functionality and can be configured at the site builder level.
+
+For more control over theming and content of the modal, and gain knowledge of how modal windows work, I took the plunge into Earl Miles' (aka Merlin of Chaos) Chaos Tools, or CTools method of modal creation. Here is how I did it.
+
+This tutorial requires an intermediate to advanced level of understanding of Drupal 7. You will need to build a module to do this.
+
+1. We'll name our module "Happy," so create a directory inside your Drupal install named, sites/all/modules/happy.
+
+Inside the 'happy' directory, create two blank files, 'happy.module' and 'happy.info.' Also, download and enable the CTools module and the Views module, as CTools a dependency for the modal, and Views is a dependency for this example.
+
+In addition, add the following for the modal customizations inside the module directory:
+
+A "js" folder with "happy.js" within, eg 'sites/all/modules/happy/js/happy.js').
+A "css" directory with "happy.css" within, e.g. 'sites/all/modules/css/happy.css').
+An images directory for the custom AJAXs throbber gifs (if desired), e.g. 'sites/all/modules/happy/images/[image-name].gif'
+A theme directory for our custom Views template in 'sites/all/modules/happy/theme', and inside that directory a views template will be placed further along in this tutorial.
+2. Configure the module with the 'happy.info' file.
+
+Open, paste the below into the file, and save:
+
+<?php
+ 
+name = Happy
+description = An example module for creating modal windows using the CTools framework.
+core = 7.x
+package = User interface
+php = 5.2.4
+dependencies[] = ctools
+dependencies[] = views
+?>
+Side note: For this example's purposes, we are using Views to generat a list of links to nodes that, when clicked, open the node content inside the modal window. Therefore, for this example, Views is a dependency.
+
+3. Open the 'happy.module' and place the standard Drupal module scaffolding at the top, then save.
+
+<?php
+/**
+ * @file
+ * Code for the Happy Modal.
+ */
+?>
+4. The first step is to define the menu path the modal link will open when the modal window appears.
+
+We do this with Drupal 7's hook_menu():
+
+<?php
+/**
+ *  Implements of hook_menu()
+ */
+function happy_menu() {
+  $items['happy/%ctools_js/%'] = array(
+      'title' => 'The Happy Modal',
+      'page arguments' => array(1, 2),
+      'page callback' => 'happy_modal_page',
+      'access callback' => TRUE,
+      'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+?>
+Here are a couple of advanced points: The CTools module identifies "%ctools_js" as a placeholder in the request path. CTools will replace that placeholder argument with "js" or "nojs," depending upon the user's browser's Javascript capabilities. The "page callback" is a function that we will define next. This is where most of the heavy lifting takes place. Finally, there are no access restrictions in this example. That is, anonymous users can access the content of the modal since the 'page callback' is set to TRUE.
+
+5. Define the 'page callback' function:
+
+<?php
+/**
+ * A modal static page callback.
+ * @param $js
+ *   boolean CTools determination whether the user's browser is javascript enabled. 
+ * @param $nid
+ *   string The node ID of passed as an argument from the hook_menu() path
+ * @return
+ *   string The contents of the node, that will fill the modal window.
+ */
+function happy_modal_page($js = NULL, $nid = NULL) {
+  if ($nid == NULL) {
+    // You can customize the string below, or use a drupal_goto() to
+    // send the user to a custom error page.
+    return 'No node id was sent. Error.';
+  }
+  if ($js) {
+    // Required includes for ctools to work:
+    ctools_include('modal');
+    ctools_include('ajax');
+  }
+  // Load the node obkect
+  $node = node_load($nid);
+  // Drupal 7 requires a render of the node object in order to obtain a string.
+  // Note that I am able to customize the fields by using the "Teaser" display mode 
+  // under admin/structure/types.
+  $contents = render(node_view($node, 'teaser', NULL));
+  return ctools_modal_render($node->title, $contents) ;
+}
+?>
+Although it appears complicated, the function above is straight-forward. If the user's browser does not support Javascript, as determined for us by CTools, then we will give them non-Javascript content. Otherwise, we fire off the CTools modal and give them the Teaser view mode of a node.
+
+6. Next, we need to inject the settings for the modal window into the parent's page load.
+
+You can do this is a number of hook functions where Drupal renders content for the page. Example hooks where the following code will work include hook_node_view (modify the $node->content object piece), hook_block_view, hook_field_load, and etc.
+
+For the purposes of this example, I am generating a View of node titles that when clicked, display the node's teaser inside the modal. For that, I used the Views hook, hook_views_pre_render():
+
+<?php
+/**
+ * inside happy.module
+ * Implements hook_views_pre_render()
+ */
+function happy_views_pre_render(&$views) {
+  // The View name I set up prior is "Happy Titles"
+  if ($views->name == 'happy_titles') {
+      // Include the CTools tools that we need.
+      ctools_include('ajax');
+      ctools_include('modal');
+
+      // Add CTools' javascript to the page.
+      ctools_modal_add_js();
+
+      // Create our own javascript that will be used to theme a modal.
+      $happy_style = array(
+        'happy-modal-style' => array(
+          'modalSize' => array(
+            'type' => 'fixed',
+            'width' => 600,
+            'height' => 240,
+            'addWidth' => 10,
+            'addHeight' => 10,
+            'contentRight' => 0,
+            'contentBottom' => 0,
+          ),
+          'modalOptions' => array(
+            'opacity' => .6,
+            'background-color' => '#684C31',
+          ),
+          'animation' => 'fadeIn',
+          'modalTheme' => 'happy_modal',
+          // Customize the AJAX throbber like so:
+          // This function assumes the images are inside the module directory's "images"
+          // directory:
+          // ctools_image_path($image, $module = 'ctools', $dir = 'images')
+          'throbber' => theme('image', array('path' => ctools_image_path('ajax-loader.gif', 'happy'), 'alt' => t('Loading...'), 'title' => t('Loading'))),
+          'closeImage' => theme('image', array('path' => ctools_image_path('modal-close.png', 'happy'), 'alt' => t('Close window'), 'title' => t('Close window'))),
+        ),
+      );
+    // Add the settings array defined above to Drupal 7's JS settings:
+    drupal_add_js($happy_style, 'setting');
+    // The function below assumes the happy.js file resides in [module_dir]/js
+    ctools_add_js('happy', 'happy');
+    // The function below assumes the happy.css file resides in [module_dir]/css
+    ctools_add_css('happy', 'happy');
+  }
+}
+?>
+This is a lot to write when creating a modal. In summary, we have to load all of the CTools JS files. Then, we define the size and features of the modal using the CTools configuration array (in this example, the $happy_style). And finally, we inject the required settings, Javascript file, and CSS file for theming the modal contents.
+
+7. Define the links that will trigger the modal window to appear.
+
+So far we have defined the page and content that will display inside the modal, and we have defined the initial styles of the modal. Now, we must define the trigger that will open the modal window. All that is really required are links with particular CTools classes. Since I am using Views, I am going to define a views template for my list of linkable titles. That way, I can modify the links inside the view to be CTools trigger aware.
+
+Alternatively, you may define the links that trigger the modal on the theme layer using the hook_preprocess hooks, or inside a views template inside the site's theme directory.
+
+I prefer to have all functionality of a custom module inside the same module directory. It's cleaner. Therefore, I opted to create a views template inside the Happy module directory.
+
+Here's the best way. First register the theme and views template:
+
+<?php
+/**
+* Implements hook_theme().
+*/
+function happy_theme() {
+  return array(
+    'views_view_fields__happy' => array(
+      'variables' => array('view' => NULL, 'options' => NULL, 'row' => NULL),
+      'template' => 'views-view-fields--happy',
+      'base hook' => 'views_view_fields',
+      // I am defining another directory inside the happy module dir called 'theme'
+      'path' => drupal_get_path('module', 'happy') . '/theme',
+    ),
+  );
+}
+?>
+After declaring this, you will need to create a [module_dir]/theme directory and place the 'views-view-fields--happy.tpl.php' file inside. For initial content, use the contents of the Views module's default "views-view-fields.tpl.php" template, located inside the Views module's theme directory.
+
+8. Views Template.
+
+Because I have registered a hook_theme and inside the hook_theme, declared a Views template, I can use Views' hook_preprocess_view() to wrangle with the eventual display of the title links I created:
+
+<?php
+/*
+ * Implements hook_preprocess_view()
+ */
+function happy_preprocess_views_view_fields(&$vars) {
+  if ($vars['view']->name == 'happy_titles') {
+    // Include the CTools tools that we need.
+    ctools_include('ajax');
+    ctools_include('modal');
+    // The view has two fields, title (not linked and no styles added), and NID (again,
+    // no style added. They are available here as $vars['fields']->title and 
+    // $vars['fields']->nid.
+    $name = $vars['fields']['title']->content;
+    // Create a path for the url that is like our hook_menu() declaration above.
+    $href = 'happy/nojs/' . $vars['fields']['nid']->content;
+    // Here's the ctools function that generates the trigger inside the link
+    // ctools_modal_text_button($text, $dest, $alt, $class = '')
+    // http://api.drupalize.me/api/drupal/function/ctools_modal_text_button/7
+    // IMPORTANT: Include ctools-modal-[your declared style name] as a class so 
+    // Ctools knows what Javascript settings to use in generating the modal:
+    $vars['ctools_link'] = ctools_modal_text_button($name, $href, t('View node content for @name', array('@name' => $name)), 'ctools-modal-happy-modal-style');
+  }
+}
+?>
+At this point, the variable $ctools_link will be available to me in the views-view-fields--happy.tpl.php file. Inside that template, simply add the line:
+
+<?php
+print $ctools_link;
+?>
+9. The Javascript file.
+
+We have accomplished all of the PHP tass for creating a CTools modal. Now we turn our attention to the Javascript.
+
+You can start with the default CTools modal js file inside the ctools_ajax_example module, but I have simplified that file for you, declaring all you need to get started.
+
+Here's the sites/all/modules/happy/js/happy.js file's contents:
+
+<?php
+/**
+* Provide the HTML to create the modal dialog.
+*/
+(function ($) {
+Drupal.theme.prototype.happy_modal = function () {
+  var html = '';
+  html += '<div id="ctools-modal" class="popups-box">';
+  html += '  <div class="ctools-modal-content ctools-modal-happy-modal-content">';
+  html += '    <span class="popups-close"><a class="close" href="#">' + Drupal.CTools.Modal.currentSettings.closeImage + '</a></span>';
+  html += '    <div class="modal-scroll"><div id="modal-content" class="modal-content popups-body"></div></div>';
+  html += '  </div>';
+  html += '</div>';
+  return html;
+}
+})(jQuery);
+?>
+10. Now you're ready to style the modal.
+
+Using 'sites/all/modules/happy/css/happy.css', style the modal window to your tastes.
+
+At this point, you have created a CTools modal in Drupal 7. For more information, avoid Google until you have consumed the extensive help html files inside the CTools module at 'sites/all/modules/ctools/help/modal.html.'
+
+Happy Modaling with Drupal 7!
